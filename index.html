@@ -113,8 +113,10 @@
     sceneEl.systems['mindar-image-system'].start();
   });
 
+  let lostTimer = null;
   const targetEl = document.getElementById('target');
   targetEl.addEventListener('targetFound', () => {
+    if (lostTimer) { clearTimeout(lostTimer); lostTimer = null; }
     scanHint.classList.add('hidden');
     endUI.classList.add('hidden');
     tapPlay.classList.add('hidden');
@@ -125,11 +127,16 @@
     checkFallback(v);
   });
   targetEl.addEventListener('targetLost', () => {
-    const v = activeVideo();
-    v.pause();
-    if (IS_IOS) domvid.classList.add('hidden');
-    tapPlay.classList.add('hidden');
-    if (!v.ended) scanHint.classList.remove('hidden');
+    // tracking can flicker for a frame or two; wait a bit before pausing
+    if (lostTimer) clearTimeout(lostTimer);
+    lostTimer = setTimeout(() => {
+      lostTimer = null;
+      const v = activeVideo();
+      v.pause();
+      if (IS_IOS) domvid.classList.add('hidden');
+      tapPlay.classList.add('hidden');
+      if (!v.ended) scanHint.classList.remove('hidden');
+    }, 1200);
   });
 
   tapPlay.addEventListener('click', () => {
@@ -141,13 +148,16 @@
     if (p && p.catch) p.catch(() => tryPlay(v));
   });
 
-  function onEnded() {
+  function onEnded(v) {
+    // guard: iOS can fire a spurious 'ended' right at playback start;
+    // only treat it as a real end when the playhead is near the duration
+    if (v.duration && v.currentTime < v.duration - 1.5) return;
     if (IS_IOS) domvid.classList.add('hidden');
     tapPlay.classList.add('hidden');
     endUI.classList.remove('hidden');
   }
-  video.addEventListener('ended', () => { if (!IS_IOS) onEnded(); });
-  domvid.addEventListener('ended', () => { if (IS_IOS) onEnded(); });
+  video.addEventListener('ended', () => { if (!IS_IOS) onEnded(video); });
+  domvid.addEventListener('ended', () => { if (IS_IOS) onEnded(domvid); });
 
   document.getElementById('replayBtn').addEventListener('click', () => {
     endUI.classList.add('hidden');
