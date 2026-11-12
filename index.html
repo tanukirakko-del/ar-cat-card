@@ -22,6 +22,9 @@
   #tapPlay { position:fixed; left:50%; bottom:90px; transform:translateX(-50%); z-index:6;
              background:#06C755; color:#fff; box-shadow:0 4px 18px rgba(0,0,0,.4); }
   #tapPlay.hidden { display:none; }
+  #domvid { position:fixed; left:50%; top:44%; transform:translate(-50%,-50%); z-index:4;
+            width:min(80vw, 46vh); border-radius:10px; box-shadow:0 8px 30px rgba(0,0,0,.5); background:#000; }
+  #domvid.hidden { display:none; }
   #endUI { background:rgba(0,0,0,.55); }
   #lineBtn { background:#06C755; color:#fff; display:inline-block; margin-top:10px; }
   #replayBtn { background:#fff; color:#123620; margin-top:14px; font-size:15px; padding:12px 26px; }
@@ -39,6 +42,7 @@
 
 <div id="scanHint" class="hidden">📷 名刺の表（ねこ）にかざしてね</div>
 <button id="tapPlay" class="hidden">▶ 動画を再生する</button>
+<video id="domvid" class="hidden" src="./assets/cat.mp4" preload="auto" playsinline webkit-playsinline muted></video>
 
 <div id="endUI" class="overlay hidden">
   <h1>ありがとうございました！</h1>
@@ -59,80 +63,100 @@
     <!-- video plane covers the cat photo area of the card front:
          photo region x 70..1230, y 70..1617 on a 1300x2150 canvas
          -> width 0.892, height 1.190, center y +0.178 -->
-    <a-video src="#catvid" width="0.892" height="1.190" position="0 0.178 0.001"></a-video>
+    <a-video id="arplane" src="#catvid" width="0.892" height="1.190" position="0 0.178 0.001"></a-video>
   </a-entity>
 </a-scene>
 
 <script>
   const LINE_URL = "https://line.me/ti/p/3i4ATQizVX";
   document.getElementById('lineBtn').href = LINE_URL;
+
+  // iOS Safari cannot reliably render the WebGL video texture used by the
+  // AR plane, so on iOS the video is shown as a normal DOM <video> overlay
+  // on top of the camera view instead. Tracking (targetFound/Lost) is the same.
+  const IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
   const sceneEl = document.getElementById('scene');
-  const video = document.getElementById('catvid');
+  const video = document.getElementById('catvid');   // texture video (non-iOS)
+  const domvid = document.getElementById('domvid');  // overlay video (iOS)
   const landing = document.getElementById('landing');
   const scanHint = document.getElementById('scanHint');
   const endUI = document.getElementById('endUI');
-  let started = false;
+  const tapPlay = document.getElementById('tapPlay');
+  const activeVideo = () => IS_IOS ? domvid : video;
+
+  if (IS_IOS) {
+    document.getElementById('arplane').setAttribute('visible', 'false');
+  }
+
+  function tryPlay(v) {
+    v.muted = true;
+    const p = v.play();
+    if (p && p.catch) p.catch(() => { try { v.load(); } catch(e) {} v.play().catch(() => {}); });
+  }
+
+  function checkFallback(v) {
+    setTimeout(() => {
+      if (!v.ended && (v.paused || v.currentTime < 0.05)) {
+        tapPlay.classList.remove('hidden');
+      }
+    }, 900);
+  }
 
   document.getElementById('startBtn').addEventListener('click', async () => {
     landing.classList.add('hidden');
     scanHint.classList.remove('hidden');
-    // prime the video inside the user gesture. Keep it muted afterwards:
-    // iOS Safari refuses non-gesture playback of unmuted video and its
-    // WebGL texture can stay blank, so AR playback stays muted on purpose.
-    try { video.muted = true; await video.play(); video.pause(); video.currentTime = 0; } catch(e) {}
-    video.muted = true;
+    // prime the active video inside the user gesture (unlock for iOS)
+    const v = activeVideo();
+    try { v.muted = true; await v.play(); v.pause(); v.currentTime = 0; } catch(e) {}
     sceneEl.systems['mindar-image-system'].start();
-    started = true;
   });
-
-  const tapPlay = document.getElementById('tapPlay');
-
-  function playMuted() {
-    video.muted = true;
-    const p = video.play();
-    if (p && p.catch) p.catch(() => { video.load(); video.play().catch(() => {}); });
-  }
 
   const targetEl = document.getElementById('target');
   targetEl.addEventListener('targetFound', () => {
     scanHint.classList.add('hidden');
     endUI.classList.add('hidden');
     tapPlay.classList.add('hidden');
-    if (video.ended) video.currentTime = 0;
-    playMuted();
-    // iOS fallback: if playback did not actually start, offer a tap-to-play
-    // button (a real user gesture always unlocks playback on iOS)
-    setTimeout(() => {
-      if (!video.ended && (video.paused || video.currentTime < 0.05)) {
-        tapPlay.classList.remove('hidden');
-      }
-    }, 900);
+    const v = activeVideo();
+    if (IS_IOS) domvid.classList.remove('hidden');
+    if (v.ended) v.currentTime = 0;
+    tryPlay(v);
+    checkFallback(v);
   });
   targetEl.addEventListener('targetLost', () => {
-    video.pause();
+    const v = activeVideo();
+    v.pause();
+    if (IS_IOS) domvid.classList.add('hidden');
     tapPlay.classList.add('hidden');
-    if (!video.ended) scanHint.classList.remove('hidden');
+    if (!v.ended) scanHint.classList.remove('hidden');
   });
 
   tapPlay.addEventListener('click', () => {
     tapPlay.classList.add('hidden');
-    if (video.ended) video.currentTime = 0;
-    const p = video.play();
-    if (p && p.catch) p.catch(() => playMuted());
+    const v = activeVideo();
+    if (v.ended) v.currentTime = 0;
+    if (IS_IOS) domvid.classList.remove('hidden');
+    const p = v.play();
+    if (p && p.catch) p.catch(() => tryPlay(v));
   });
 
-  video.addEventListener('ended', () => {
+  function onEnded() {
+    if (IS_IOS) domvid.classList.add('hidden');
+    tapPlay.classList.add('hidden');
     endUI.classList.remove('hidden');
-  });
+  }
+  video.addEventListener('ended', () => { if (!IS_IOS) onEnded(); });
+  domvid.addEventListener('ended', () => { if (IS_IOS) onEnded(); });
 
   document.getElementById('replayBtn').addEventListener('click', () => {
     endUI.classList.add('hidden');
-    video.currentTime = 0;
-    // this click is a user gesture, so sound is allowed here even on iOS;
-    // if the browser still refuses, fall back to muted playback
-    video.muted = false;
-    const p = video.play();
-    if (p && p.catch) p.catch(() => playMuted());
+    const v = activeVideo();
+    v.currentTime = 0;
+    if (IS_IOS) domvid.classList.remove('hidden');
+    // user gesture: playback always allowed here
+    const p = v.play();
+    if (p && p.catch) p.catch(() => tryPlay(v));
   });
 </script>
 </body>
