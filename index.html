@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>兼松祐明 AR名刺</title>
+<script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; font-family: sans-serif; background:#123620; }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+             background:rgba(18,54,32,.96); color:#fff; z-index:10; text-align:center; padding:24px; box-sizing:border-box; }
+  .overlay.hidden { display:none; }
+  .overlay img { width:150px; border-radius:8px; border:3px solid #faf7ee; }
+  .overlay h1 { font-size:22px; margin:16px 0 6px; }
+  .overlay p { font-size:14px; line-height:1.7; margin:4px 0; opacity:.92; }
+  button, .btn { border:none; border-radius:999px; padding:16px 34px; font-size:18px; font-weight:bold; cursor:pointer; text-decoration:none; }
+  #startBtn { background:#06C755; color:#fff; margin-top:18px; }
+  #scanHint { position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:5;
+              background:rgba(0,0,0,.65); color:#fff; padding:10px 18px; border-radius:999px; font-size:14px; white-space:nowrap; }
+  #scanHint.hidden { display:none; }
+  #endUI { background:rgba(0,0,0,.55); }
+  #lineBtn { background:#06C755; color:#fff; display:inline-block; margin-top:10px; }
+  #replayBtn { background:#fff; color:#123620; margin-top:14px; font-size:15px; padding:12px 26px; }
+</style>
+</head>
+<body>
+
+<div id="landing" class="overlay">
+  <img src="./assets/trigger.jpg" alt="AR名刺の表面">
+  <h1>兼松 祐明</h1>
+  <p>カメラを許可して、名刺の「表」の<br>ねこにかざしてください。</p>
+  <button id="startBtn">カメラを起動する</button>
+  <p style="font-size:12px; opacity:.7;">動画が終わると LINE ボタンが出ます</p>
+</div>
+
+<div id="scanHint" class="hidden">📷 名刺の表（ねこ）にかざしてね</div>
+
+<div id="endUI" class="overlay hidden">
+  <h1>ありがとうございました！</h1>
+  <p>よければ LINE でつながってください</p>
+  <a id="lineBtn" class="btn" href="https://line.me/ti/p/3i4ATQizVX">LINEでつながる</a>
+  <button id="replayBtn">もう一度みる</button>
+</div>
+
+<a-scene id="scene"
+  mindar-image="imageTargetSrc: ./assets/targets.mind; autoStart: false; uiLoading: no; uiScanning: no; uiError: no"
+  color-space="sRGB" renderer="colorManagement: true, physicallyCorrectLights"
+  vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
+  <a-assets>
+    <video id="catvid" src="./assets/cat.mp4" preload="auto" playsinline webkit-playsinline muted loop="false" crossorigin="anonymous"></video>
+  </a-assets>
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+  <a-entity id="target" mindar-image-target="targetIndex: 0">
+    <!-- video plane covers the cat photo area of the card front:
+         photo region x 70..1230, y 70..1617 on a 1300x2150 canvas
+         -> width 0.892, height 1.190, center y +0.178 -->
+    <a-video src="#catvid" width="0.892" height="1.190" position="0 0.178 0.001"></a-video>
+  </a-entity>
+</a-scene>
+
+<script>
+  const LINE_URL = "https://line.me/ti/p/3i4ATQizVX";
+  document.getElementById('lineBtn').href = LINE_URL;
+  const sceneEl = document.getElementById('scene');
+  const video = document.getElementById('catvid');
+  const landing = document.getElementById('landing');
+  const scanHint = document.getElementById('scanHint');
+  const endUI = document.getElementById('endUI');
+  let started = false;
+
+  document.getElementById('startBtn').addEventListener('click', async () => {
+    landing.classList.add('hidden');
+    scanHint.classList.remove('hidden');
+    // prime the video inside the user gesture so playback (with sound) is allowed later
+    try { video.muted = true; await video.play(); video.pause(); video.currentTime = 0; video.muted = false; } catch(e) {}
+    sceneEl.systems['mindar-image-system'].start();
+    started = true;
+  });
+
+  const targetEl = document.getElementById('target');
+  targetEl.addEventListener('targetFound', () => {
+    scanHint.classList.add('hidden');
+    endUI.classList.add('hidden');
+    if (video.ended) video.currentTime = 0;
+    video.play();
+  });
+  targetEl.addEventListener('targetLost', () => {
+    video.pause();
+    if (!video.ended) scanHint.classList.remove('hidden');
+  });
+
+  video.addEventListener('ended', () => {
+    endUI.classList.remove('hidden');
+  });
+
+  document.getElementById('replayBtn').addEventListener('click', () => {
+    endUI.classList.add('hidden');
+    video.currentTime = 0;
+    video.play();
+  });
+</script>
+</body>
+</html>
